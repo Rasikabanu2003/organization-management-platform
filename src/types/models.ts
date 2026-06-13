@@ -1,0 +1,35 @@
+// Export from Prisma
+export type {
+  User,
+  Organization,
+  Role,
+  Permission,
+  Department,
+  Workflow,
+  ActionPoint,
+  IssueTicket,
+  Asset,
+  Course,
+  Assessment,
+  Communication,
+  SuccessStory,
+  AuditLog,
+} from '@prisma/client';
+
+export type {
+  UserStatus,
+  OrgStatus,
+  WorkflowStatus,
+  ActionStatus,
+  Priority,
+  TicketStatus,
+  AssetType,
+  AssetStatus,
+  CourseLevel,
+  CourseStatus,
+  EnrollmentStatus,
+  QuestionType,
+  CommunicationType,
+  CommunicationStatus,
+  ExecutionStatus,
+} from '@prisma/client';
