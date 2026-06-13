@@ -1,0 +1,570 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============= AUTH & USERS =============
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  name          String?
+  password      String
+  avatar        String?
+  phone         String?
+  department    String?
+  position      String?
+  bio           String?
+  status        UserStatus @default(ACTIVE)
+  role          Role       @relation(fields: [roleId], references: [id])
+  roleId        String
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  
+  // Relations
+  actionPoints  ActionPoint[]
+  tickets       IssueTicket[]
+  assets        Asset[]
+  communications Communication[]
+  assessments   Assessment[]
+  courses       EnrollmentRecord[]
+  createdWorkflows Workflow[]
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([organizationId])
+  @@index([roleId])
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  ON_LEAVE
+}
+
+// ============= ROLES & PERMISSIONS =============
+model Role {
+  id            String     @id @default(cuid())
+  name          String
+  description   String?
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  users         User[]
+  permissions   Permission[]
+
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Permission {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  description   String?
+  module        String   // e.g., "users", "assets", "tickets"
+  action        String   // e.g., "create", "read", "update", "delete"
+  roles         Role[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ============= ORGANIZATION =============
+model Organization {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  phone           String?
+  website         String?
+  logo            String?
+  description     String?
+  industry        String?
+  employees       Int      @default(0)
+  address         String?
+  city            String?
+  country         String?
+  zipCode         String?
+  status          OrgStatus @default(ACTIVE)
+  
+  // Relations
+  users           User[]
+  roles           Role[]
+  departments     Department[]
+  workflows       Workflow[]
+  actionPoints    ActionPoint[]
+  tickets         IssueTicket[]
+  assets          Asset[]
+  communications  Communication[]
+  courses         Course[]
+  assessments     Assessment[]
+  successStories  SuccessStory[]
+  platformSettings PlatformSettings?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum OrgStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+// ============= DEPARTMENTS =============
+model Department {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  managerId       String?
+  budget          Float?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+// ============= PLATFORM SETTINGS =============
+model PlatformSettings {
+  id              String   @id @default(cuid())
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String   @unique
+  theme           String   @default("light")
+  language        String   @default("en")
+  timeZone        String   @default("UTC")
+  dateFormat      String   @default("DD/MM/YYYY")
+  maintenanceMode Boolean  @default(false)
+  maxUploadSize   Int      @default(10485760) // 10MB
+  sessionTimeout  Int      @default(3600) // 1 hour
+  twoFactorAuth   Boolean  @default(false)
+  emailNotifications Boolean @default(true)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// ============= WORKFLOWS & PROCESSES =============
+model Workflow {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  creator         User     @relation(fields: [creatorId], references: [id])
+  creatorId       String
+  status          WorkflowStatus @default(DRAFT)
+  triggerType     String   // "manual", "time", "event", etc.
+  steps           WorkflowStep[]
+  executions      WorkflowExecution[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([creatorId])
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+model WorkflowStep {
+  id              String   @id @default(cuid())
+  workflow        Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workflowId      String
+  stepNumber      Int
+  action          String
+  config          String   @db.JsonB
+  conditionType   String? // "if", "else_if", "else"
+  condition       String?  // JSON stored as string
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([workflowId])
+}
+
+model WorkflowExecution {
+  id              String   @id @default(cuid())
+  workflow        Workflow @relation(fields: [workflowId], references: [id])
+  workflowId      String
+  status          ExecutionStatus @default(PENDING)
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  result          String?  @db.JsonB
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([workflowId])
+}
+
+enum ExecutionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+// ============= ACTION POINTS =============
+model ActionPoint {
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  assignedTo      User     @relation(fields: [assignedToId], references: [id])
+  assignedToId    String
+  priority        Priority @default(MEDIUM)
+  status          ActionStatus @default(OPEN)
+  dueDate         DateTime?
+  completedAt     DateTime?
+  comments        String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([assignedToId])
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+// ============= ISSUE TICKETS =============
+model IssueTicket {
+  id              String   @id @default(cuid())
+  ticketNumber    String   @unique
+  title           String
+  description     String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  creator         User     @relation(fields: [creatorId], references: [id])
+  creatorId       String
+  priority        Priority @default(MEDIUM)
+  status          TicketStatus @default(OPEN)
+  category        String?
+  assignedTo      String?
+  dueDate         DateTime?
+  resolvedAt      DateTime?
+  attachments     String[] @default([]) // URLs
+  comments        TicketComment[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([creatorId])
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  ON_HOLD
+  RESOLVED
+  CLOSED
+  REOPEN
+}
+
+model TicketComment {
+  id              String   @id @default(cuid())
+  ticket          IssueTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId        String
+  content         String
+  createdAt       DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+// ============= ASSETS MANAGEMENT =============
+model Asset {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  type            AssetType
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  owner           User     @relation(fields: [ownerId], references: [id])
+  ownerId         String
+  serialNumber    String?
+  location        String?
+  status          AssetStatus @default(AVAILABLE)
+  purchaseDate    DateTime?
+  expiryDate      DateTime?
+  value           Float?
+  maintenanceLogs MaintenanceLog[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([ownerId])
+}
+
+enum AssetType {
+  HARDWARE
+  SOFTWARE
+  VEHICLE
+  PROPERTY
+  OTHER
+}
+
+enum AssetStatus {
+  AVAILABLE
+  IN_USE
+  MAINTENANCE
+  RETIRED
+  LOST
+}
+
+model MaintenanceLog {
+  id              String   @id @default(cuid())
+  asset           Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assetId         String
+  description     String
+  date            DateTime
+  cost            Float?
+
+  createdAt       DateTime @default(now())
+
+  @@index([assetId])
+}
+
+// ============= E-LEARNING & ASSESSMENT =============
+model Course {
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  instructor      String?
+  duration        Int? // in hours
+  level           CourseLevel @default(BEGINNER)
+  status          CourseStatus @default(DRAFT)
+  modules         CourseModule[]
+  enrollments     EnrollmentRecord[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model CourseModule {
+  id              String   @id @default(cuid())
+  course          Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId        String
+  title           String
+  content         String?  @db.Text
+  videoUrl        String?
+  duration        Int? // in minutes
+  order           Int
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([courseId])
+}
+
+model EnrollmentRecord {
+  id              String   @id @default(cuid())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  course          Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId        String
+  enrollmentDate  DateTime @default(now())
+  completionDate  DateTime?
+  progress        Int      @default(0) // percentage
+  status          EnrollmentStatus @default(ENROLLED)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+}
+
+enum EnrollmentStatus {
+  ENROLLED
+  IN_PROGRESS
+  COMPLETED
+  DROPPED
+}
+
+model Assessment {
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  questions       Question[]
+  results         AssessmentResult[]
+  passingScore    Int      @default(70)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+model Question {
+  id              String   @id @default(cuid())
+  assessment      Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId    String
+  questionText    String
+  questionType    QuestionType
+  options         String[]  @default([]) // JSON array
+  correctAnswer   String
+  points          Int      @default(1)
+
+  createdAt       DateTime @default(now())
+
+  @@index([assessmentId])
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+}
+
+model AssessmentResult {
+  id              String   @id @default(cuid())
+  assessment      Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId    String
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  score           Int
+  totalPoints     Int
+  percentage      Float
+  answers         String   @db.JsonB
+  passedAt        DateTime?
+  attemptNumber   Int      @default(1)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([assessmentId, userId])
+  @@index([assessmentId])
+  @@index([userId])
+}
+
+// ============= COMMUNICATION & ENGAGEMENT =============
+model Communication {
+  id              String   @id @default(cuid())
+  title           String
+  content         String   @db.Text
+  type            CommunicationType
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  sender          User     @relation(fields: [senderId], references: [id])
+  senderId        String
+  recipientType   String // "all", "role", "department", "individual"
+  recipientValue  String? // JSON for role/department IDs
+  isScheduled     Boolean  @default(false)
+  scheduledAt     DateTime?
+  status          CommunicationStatus @default(DRAFT)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([senderId])
+}
+
+enum CommunicationType {
+  ANNOUNCEMENT
+  EMAIL
+  MESSAGE
+  NOTIFICATION
+  NEWSLETTER
+}
+
+enum CommunicationStatus {
+  DRAFT
+  PUBLISHED
+  SCHEDULED
+  SENT
+  ARCHIVED
+}
+
+// ============= SUCCESS STORIES =============
+model SuccessStory {
+  id              String   @id @default(cuid())
+  title           String
+  description     String   @db.Text
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId  String
+  thumbnail       String?
+  images          String[] @default([])
+  metrics         String?  @db.JsonB // JSON object with various metrics
+  impact          String   @db.Text
+  author          String?
+  featured        Boolean  @default(false)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// ============= AUDIT LOG =============
+model AuditLog {
+  id              String   @id @default(cuid())
+  action          String
+  module          String
+  userId          String?
+  organizationId  String?
+  details         String?  @db.JsonB
+  ipAddress       String?
+  userAgent       String?
+
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([createdAt])
+}
